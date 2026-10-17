@@ -1,0 +1,28 @@
+services:
+  mongo:
+    image: mongo:7
+    ports: ["127.0.0.1:27018:27017"]
+    environment: {MONGO_INITDB_ROOT_USERNAME: migrater, MONGO_INITDB_ROOT_PASSWORD: migrater_test}
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({ping:1})"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  mysql:
+    image: mysql:8.0
+    ports: ["127.0.0.1:3307:3306"]
+    environment: {MYSQL_ROOT_PASSWORD: migrater_test, MYSQL_ROOT_HOST: '%'}
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysql -h 127.0.0.1 -uroot -Nse 'SELECT 1' >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  postgres:
+    image: postgres:17
+    ports: ["127.0.0.1:15432:5432"]
+    environment: {POSTGRES_PASSWORD: migrater_test}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
