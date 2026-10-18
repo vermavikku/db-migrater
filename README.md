@@ -12,70 +12,59 @@ Local to hosted, hosted to local, and hosted to hosted connections are supported
 
 ## Quick start
 
-### 1. Install prerequisites
+Choose one option below. Both need a reachable source and destination database of the **same engine**. Create the destination database first for MySQL or PostgreSQL.
 
-- [Node.js](https://nodejs.org/) **24 LTS** and npm. Node 24 is the version used to develop and test this project. Check with `node --version` and `npm --version`.
-- Access to a source and destination database of the **same** engine. MySQL and PostgreSQL destination databases must already exist.
-- For **MySQL migration**, install the MySQL client programs `mysqldump` and `mysql`.
-- For **PostgreSQL migration**, install the PostgreSQL client programs `pg_dump` and `pg_restore`.
-- For **MongoDB migration**, no separate database utility is required; the Node.js driver handles it.
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) or another Docker Compose compatible engine is needed only for Docker mode or disposable test databases.
+### Option 1 — Run backend and frontend individually
 
-The native MySQL and PostgreSQL programs are needed for **migration**, not for connection testing or object discovery. The preview checks for missing programs before allowing a migration. See [Database client tools](#database-client-tools) for installation and version checks.
+Install [Node.js 24](https://nodejs.org/) and npm. Check with `node --version` and `npm --version`. For MySQL migrations, install `mysqldump` and `mysql`; for PostgreSQL migrations, install `pg_dump` and `pg_restore`. MongoDB migrations use the Node.js driver and need no separate client utility. Native tools are required for migration, but not for connection tests or discovery; see [Database client tools](#database-client-tools).
 
-### 2. Install and configure the backend
-
-Open PowerShell in the repository root:
+Open **terminal 1** in the repository root and start the backend:
 
 ```powershell
 cd backend
-npm install
+npm ci
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 npm run dev
 ```
 
-With a new example `.env`, the backend binds to `127.0.0.1:4000`. Check `http://127.0.0.1:4000/api/health` for a `ready` response. If you already configured another `PORT`, use that port in the health URL. Keep this terminal open.
-
-### 3. Install and configure the frontend
-
-Open a **second** PowerShell terminal in the repository root:
+Open **terminal 2** in the repository root and start the frontend:
 
 ```powershell
 cd frontend
-npm install
+npm ci
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 npm run dev
 ```
 
-With a new example `.env`, open `http://127.0.0.1:5173` in your browser. If you already configured another `VITE_PORT`, open that port instead. The backend and frontend are separate npm projects: run `npm install` and `npm run dev` inside **each** directory. The repository root has no `package.json`. Press `Ctrl+C` in each terminal to stop the apps.
+**Open the software in your browser:** with the example environment values, go to **http://127.0.0.1:5173**. The backend health endpoint is **http://127.0.0.1:4000/api/health**; it is an API check, not the UI. Keep both terminals open while using the app. Press `Ctrl+C` in each terminal to stop it.
 
-If your `backend/.env` already has `PORT=5000` and `FRONTEND_ORIGIN=http://127.0.0.1:5174`, set `VITE_API_URL=http://127.0.0.1:5000` and `VITE_PORT=5174` in `frontend/.env`, then open `http://127.0.0.1:5174`. The copy commands above preserve existing `.env` files.
+If you already have `.env` files, the copy commands preserve them. Use the frontend address `http://127.0.0.1:<VITE_PORT>` from `frontend/.env`. Ensure `VITE_API_URL` points to the backend's `PORT` and `FRONTEND_ORIGIN` exactly matches the frontend address. For example, with backend `PORT=5000` and frontend `VITE_PORT=5174`, use `VITE_API_URL=http://127.0.0.1:5000`, `FRONTEND_ORIGIN=http://127.0.0.1:5174`, and open **http://127.0.0.1:5174**. Restart both servers after editing their environment files. Run npm commands inside `backend` and `frontend` separately; there is no root `package.json`.
 
-### Run the app with Docker instead
+### Option 2 — Run the app with Docker
 
-Docker mode requires Docker Compose, but does **not** require host Node.js, npm, MySQL clients, or PostgreSQL clients. From the repository root:
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) or another Docker Compose compatible engine and start it. Host Node.js, npm, MySQL clients, and PostgreSQL clients are not needed. Open PowerShell in the repository root:
 
 ```powershell
 docker compose up -d --build
 docker compose ps
 ```
 
-Open `http://127.0.0.1:8080`. Compose starts only `frontend` and `backend`; it does not start three database servers. The frontend image builds the React app and serves it with Nginx. Nginx forwards `/api` and `/socket.io` to the backend on the private Compose network. Only the frontend port is published, and only on host loopback. Your local `frontend/.env` and `backend/.env` are not copied into the images; Compose supplies its own matching settings.
+**Open the software in your browser:** go to **http://127.0.0.1:8080**. Compose starts only the `frontend` and `backend` app services by default. The frontend image serves the built React app with Nginx and proxies `/api` and `/socket.io` to the backend. Only the frontend port is published on host loopback. The optional MongoDB, MySQL, and PostgreSQL test containers do not start unless requested explicitly.
 
-To choose another host port, set it before starting Compose:
+To use another browser port, set it in the same terminal before starting Compose:
 
 ```powershell
 $env:DB_MIGRATER_PORT='8081'
 docker compose up -d --build
 ```
 
-Open `http://127.0.0.1:8081` in that case. Use `docker compose logs -f frontend backend` to inspect startup, and `docker compose stop frontend backend` to stop the app containers while leaving any optional test databases running. Docker mode can coexist with separate npm servers on ports `5000` and `5174` because its default browser port is `8080`.
+Then open **http://127.0.0.1:8081**. Docker Compose supplies the backend and frontend settings; local `backend/.env` and `frontend/.env` are not copied into the images. Use `docker compose logs -f frontend backend` to see startup logs. Stop only the app with `docker compose stop frontend backend`; this leaves any optional test databases running.
 
-**Connecting from the backend container:** `localhost` or `127.0.0.1` inside a database URI means the **backend container**, not your computer. For a database running on the host, use `host.docker.internal` as the URI hostname (for example `postgresql://user:password@host.docker.internal:5432/source`). The database must listen on an address reachable from Docker and allow the connection. Hosted database URIs work as usual. If you explicitly start the optional Compose test databases, use their service names (`mongo`, `mysql`, `postgres`) and internal ports (`27017`, `3306`, `5432`) from the Dockerized backend.
+**Database URIs in Docker mode:** `localhost` and `127.0.0.1` mean the backend container. For a database running on your computer, use `host.docker.internal` as its hostname, for example `postgresql://user:password@host.docker.internal:5432/source`. The database must accept connections from Docker. Hosted database URIs work as usual. For optional Compose test databases, use service names `mongo`, `mysql`, or `postgres` with ports `27017`, `3306`, or `5432` respectively.
 
 ## Environment configuration
 
-Create each `.env` file from its `.env.example` and edit it for your machine. Do not commit `.env` files or put database connection URIs in them. Restart the affected development server after changing an `.env` file.
+For **Option 1**, create each `.env` file from its `.env.example` and edit it for your machine. Do not commit `.env` files or put database connection URIs in them. Restart the affected development server after changing an `.env` file. **Option 2** uses the settings in `docker-compose.yml` instead of these local app `.env` files.
 
 ### `backend/.env`
 
@@ -253,7 +242,7 @@ Remove-Item Env:RUN_DB_INTEGRATION
 
 The optional database services are under Compose profile `test-db` and do not start with a plain `docker compose up`. They bind only to `127.0.0.1`: MongoDB on `27018`, MySQL on `3307`, and PostgreSQL on `15432`. Their credentials in `docker-compose.yml` are **test-only**. The integration suite creates and deletes its own test databases and collections. Never point it at a real database. When running tests from the host as shown, MySQL and PostgreSQL migration cases need the relevant native clients available in `PATH` or via `MYSQL_BIN_DIR` / `POSTGRES_BIN_DIR`.
 
-From the repository root, stop the test services with `docker compose down`. Use `docker compose down -v` only when you intentionally want to delete the disposable test volumes. To run just MongoDB cases, start `docker compose up -d --wait mongo` and set `RUN_DB_INTEGRATION='mongo'`. To run MongoDB and PostgreSQL cases, start those two services and set `RUN_DB_INTEGRATION='postgres'`.
+From the repository root, stop only the test services with `docker compose stop mongo mysql postgres`. `docker compose down` stops and removes the Compose project services; use `docker compose down -v` only when you intentionally want to delete the disposable test volumes. To run just MongoDB cases, start `docker compose up -d --wait mongo` and set `RUN_DB_INTEGRATION='mongo'`. To run MongoDB and PostgreSQL cases, start those two services and set `RUN_DB_INTEGRATION='postgres'`.
 
 ## Troubleshooting
 
@@ -262,6 +251,7 @@ From the repository root, stop the test services with `docker compose down`. Use
 | Connection-test request goes to `:4000` while backend is on `:5000` | Set `VITE_API_URL=http://127.0.0.1:5000` in `frontend/.env` and restart Vite. |
 | Browser reports a CORS or forbidden-origin error | Match `FRONTEND_ORIGIN` to the **exact** browser origin, including `127.0.0.1` versus `localhost` and the Vite port. Restart the backend. |
 | Port already in use | Stop the other process with `Ctrl+C` in its terminal, or choose unused matching ports in both `.env` files. Vite will not silently move to another port. |
+| Docker browser port `8080` already in use | Set `$env:DB_MIGRATER_PORT='8081'` before `docker compose up -d --build`, then open `http://127.0.0.1:8081`. |
 | Docker app cannot connect to a database on the host | Use `host.docker.internal` instead of `localhost` in the database URI. Make sure the host database listens for Docker connections and its firewall permits them. |
 | Docker frontend returns `502 Bad Gateway` | Check `docker compose ps` and `docker compose logs backend`; the backend container must be healthy before Nginx can proxy requests. |
 | npm reports a certificate verification error on Windows | Use a trusted system certificate configuration. On systems with the required CA in the Windows trust store, run `$env:NODE_USE_SYSTEM_CA='1'` in that terminal before `npm install`; do not disable TLS verification. |
