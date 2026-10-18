@@ -1,5 +1,42 @@
 services:
+  backend:
+    build: ./backend
+    environment:
+      PORT: "4000"
+      BIND_HOST: 0.0.0.0
+      FRONTEND_ORIGIN: http://127.0.0.1:${DB_MIGRATER_PORT:-8080}
+      CONNECTION_TIMEOUT_MS: ${CONNECTION_TIMEOUT_MS:-8000}
+      JOB_TIMEOUT_MS: ${JOB_TIMEOUT_MS:-3600000}
+      MAX_ACTIVE_JOBS: ${MAX_ACTIVE_JOBS:-2}
+    expose:
+      - "4000"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:${DB_MIGRATER_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+  # Disposable databases for integration tests. They do not start with `docker compose up`.
   mongo:
+    profiles: [test-db]
     image: mongo:7
     ports: ["127.0.0.1:27018:27017"]
     environment: {MONGO_INITDB_ROOT_USERNAME: migrater, MONGO_INITDB_ROOT_PASSWORD: migrater_test}
@@ -8,7 +45,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
   mysql:
+    profiles: [test-db]
     image: mysql:8.0
     ports: ["127.0.0.1:3307:3306"]
     environment: {MYSQL_ROOT_PASSWORD: migrater_test, MYSQL_ROOT_HOST: '%'}
@@ -17,7 +56,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
   postgres:
+    profiles: [test-db]
     image: postgres:17
     ports: ["127.0.0.1:15432:5432"]
     environment: {POSTGRES_PASSWORD: migrater_test}

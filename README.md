@@ -19,7 +19,7 @@ Local to hosted, hosted to local, and hosted to hosted connections are supported
 - For **MySQL migration**, install the MySQL client programs `mysqldump` and `mysql`.
 - For **PostgreSQL migration**, install the PostgreSQL client programs `pg_dump` and `pg_restore`.
 - For **MongoDB migration**, no separate database utility is required; the Node.js driver handles it.
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) or another Docker Compose compatible engine is optional. It is used only for disposable local test databases.
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) or another Docker Compose compatible engine is needed only for Docker mode or disposable test databases.
 
 The native MySQL and PostgreSQL programs are needed for **migration**, not for connection testing or object discovery. The preview checks for missing programs before allowing a migration. See [Database client tools](#database-client-tools) for installation and version checks.
 
@@ -51,6 +51,28 @@ With a new example `.env`, open `http://127.0.0.1:5173` in your browser. If you 
 
 If your `backend/.env` already has `PORT=5000` and `FRONTEND_ORIGIN=http://127.0.0.1:5174`, set `VITE_API_URL=http://127.0.0.1:5000` and `VITE_PORT=5174` in `frontend/.env`, then open `http://127.0.0.1:5174`. The copy commands above preserve existing `.env` files.
 
+### Run the app with Docker instead
+
+Docker mode requires Docker Compose, but does **not** require host Node.js, npm, MySQL clients, or PostgreSQL clients. From the repository root:
+
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
+Open `http://127.0.0.1:8080`. Compose starts only `frontend` and `backend`; it does not start three database servers. The frontend image builds the React app and serves it with Nginx. Nginx forwards `/api` and `/socket.io` to the backend on the private Compose network. Only the frontend port is published, and only on host loopback. Your local `frontend/.env` and `backend/.env` are not copied into the images; Compose supplies its own matching settings.
+
+To choose another host port, set it before starting Compose:
+
+```powershell
+$env:DB_MIGRATER_PORT='8081'
+docker compose up -d --build
+```
+
+Open `http://127.0.0.1:8081` in that case. Use `docker compose logs -f frontend backend` to inspect startup, and `docker compose stop frontend backend` to stop the app containers while leaving any optional test databases running. Docker mode can coexist with separate npm servers on ports `5000` and `5174` because its default browser port is `8080`.
+
+**Connecting from the backend container:** `localhost` or `127.0.0.1` inside a database URI means the **backend container**, not your computer. For a database running on the host, use `host.docker.internal` as the URI hostname (for example `postgresql://user:password@host.docker.internal:5432/source`). The database must listen on an address reachable from Docker and allow the connection. Hosted database URIs work as usual. If you explicitly start the optional Compose test databases, use their service names (`mongo`, `mysql`, `postgres`) and internal ports (`27017`, `3306`, `5432`) from the Dockerized backend.
+
 ## Environment configuration
 
 Create each `.env` file from its `.env.example` and edit it for your machine. Do not commit `.env` files or put database connection URIs in them. Restart the affected development server after changing an `.env` file.
@@ -59,7 +81,8 @@ Create each `.env` file from its `.env.example` and edit it for your machine. Do
 
 | Variable | Example/default | Purpose |
 | --- | --- | --- |
-| `PORT` | `4000` | Local backend HTTP and Socket.IO port. The backend always binds to `127.0.0.1`. |
+| `PORT` | `4000` | Backend HTTP and Socket.IO port. |
+| `BIND_HOST` | unset (`127.0.0.1`) | Docker Compose sets `0.0.0.0` on its private network so the frontend proxy can reach the backend container. Leave unset for separate local npm runs. |
 | `FRONTEND_ORIGIN` | `http://127.0.0.1:5173` | Exact allowed browser origin for HTTP and Socket.IO. Include scheme, host, and port; omit the trailing slash. |
 | `CONNECTION_TIMEOUT_MS` | `8000` | Database connection timeout in milliseconds. |
 | `JOB_TIMEOUT_MS` | `3600000` | Maximum migration run time in milliseconds (one hour in the example). |
@@ -123,6 +146,8 @@ The PostgreSQL preview checks utility and server major versions. `pg_dump` must 
 
 Native MySQL migration supports the URI query option `ssl-mode`. Native PostgreSQL migration supports `sslmode`, `sslrootcert`, `sslcert`, `sslkey`, `target_session_attrs`, `application_name`, `connect_timeout`, and `options`. Other URI options are blocked during preview rather than silently ignored by the native tools.
 
+The backend Docker image includes official MySQL 8 client commands and PostgreSQL 17 client commands. A PostgreSQL source newer than 17 may require rebuilding the image with newer PostgreSQL clients; preview blocks incompatible versions. No native clients need to be installed on the host for Docker mode.
+
 ## How a migration works
 
 1. **Connect:** Choose MongoDB, MySQL, or PostgreSQL for each side. Paste the source and destination connection URIs. The selected engine must match each URI scheme. Detect provider shows a **hostname-based estimate**; it does not affect connectivity.
@@ -159,7 +184,9 @@ frontend/
   src/modules/migrations/               Selection, review, progress, results workflow
   src/components/ui/                    Shared controls and visual layout
   src/lib/axios.js                      Local backend HTTP client
-docker-compose.yml                      Optional disposable databases for testing
+backend/Dockerfile                      Backend image with database client tools
+frontend/Dockerfile, nginx.conf         Built UI and API/Socket.IO proxy
+docker-compose.yml                      Two app services; optional test databases
 ```
 
 The React/Vite frontend uses Tailwind CSS, React Router, Axios, Lucide icons, React Hot Toast, and the Socket.IO client. It holds connection strings and the job access token only in browser memory. The Express backend uses Zod for request validation and an adapter factory to choose the official MongoDB driver, `mysql2`, or `pg`. Real database connections and migration commands run only in the backend.
@@ -187,7 +214,7 @@ Responses use `{ "ok": true, "data": ... }` or `{ "ok": false, "error": { "code"
 
 ## Safety and limitations
 
-- The backend listens on loopback and accepts only the configured frontend origin. It has no user authentication for remote deployment; **do not expose it publicly**. Connection testing can reach internal network hosts, so keep the service local.
+- The backend binds to loopback for separate npm runs. In Docker mode it binds inside the private Compose network, has no published host port, and receives browser requests through the loopback-published frontend proxy. It accepts only the configured frontend origin. It has no user authentication for remote deployment; **do not expose it publicly**. Connection testing can reach internal network hosts, so keep the service local.
 - Connection URIs are not written to application logs, reports, or Socket.IO progress events. Driver errors returned to the browser are categorized and sanitized.
 - The app never drops, truncates, merges into, or overwrites an existing destination object. Conflicts are checked at preview and again before writing. A failed or cancelled migration may leave **newly created** destination objects and partial data; inspect them before retrying.
 - Source data can change during a run. Count verification compares source and destination counts but does not prove identical content or a point-in-time snapshot across engines and objects.
@@ -213,10 +240,10 @@ Run commands inside the named app directory:
 | `frontend` | `npm run lint` | Lint frontend code |
 | `frontend` | `npm test` | Run frontend tests |
 
-To run the **destructive integration suite only against the disposable Compose databases**, start Docker Desktop, then run from the repository root:
+To run the **destructive integration suite only against the disposable Compose databases**, start Docker Desktop, then run from the repository root. Naming the database services explicitly starts them without the app containers:
 
 ```powershell
-docker compose up -d --wait
+docker compose up -d --wait mongo mysql postgres
 docker compose ps
 $env:RUN_DB_INTEGRATION='1'
 cd backend
@@ -224,7 +251,7 @@ npm run test:integration
 Remove-Item Env:RUN_DB_INTEGRATION
 ```
 
-The Compose services bind only to `127.0.0.1`: MongoDB on `27018`, MySQL on `3307`, and PostgreSQL on `15432`. Their credentials in `docker-compose.yml` are **test-only**. The integration suite creates and deletes its own test databases and collections. Never point it at a real database. MySQL and PostgreSQL migration cases need the relevant native clients available in `PATH` or via `MYSQL_BIN_DIR` / `POSTGRES_BIN_DIR`.
+The optional database services are under Compose profile `test-db` and do not start with a plain `docker compose up`. They bind only to `127.0.0.1`: MongoDB on `27018`, MySQL on `3307`, and PostgreSQL on `15432`. Their credentials in `docker-compose.yml` are **test-only**. The integration suite creates and deletes its own test databases and collections. Never point it at a real database. When running tests from the host as shown, MySQL and PostgreSQL migration cases need the relevant native clients available in `PATH` or via `MYSQL_BIN_DIR` / `POSTGRES_BIN_DIR`.
 
 From the repository root, stop the test services with `docker compose down`. Use `docker compose down -v` only when you intentionally want to delete the disposable test volumes. To run just MongoDB cases, start `docker compose up -d --wait mongo` and set `RUN_DB_INTEGRATION='mongo'`. To run MongoDB and PostgreSQL cases, start those two services and set `RUN_DB_INTEGRATION='postgres'`.
 
@@ -235,6 +262,8 @@ From the repository root, stop the test services with `docker compose down`. Use
 | Connection-test request goes to `:4000` while backend is on `:5000` | Set `VITE_API_URL=http://127.0.0.1:5000` in `frontend/.env` and restart Vite. |
 | Browser reports a CORS or forbidden-origin error | Match `FRONTEND_ORIGIN` to the **exact** browser origin, including `127.0.0.1` versus `localhost` and the Vite port. Restart the backend. |
 | Port already in use | Stop the other process with `Ctrl+C` in its terminal, or choose unused matching ports in both `.env` files. Vite will not silently move to another port. |
+| Docker app cannot connect to a database on the host | Use `host.docker.internal` instead of `localhost` in the database URI. Make sure the host database listens for Docker connections and its firewall permits them. |
+| Docker frontend returns `502 Bad Gateway` | Check `docker compose ps` and `docker compose logs backend`; the backend container must be healthy before Nginx can proxy requests. |
 | npm reports a certificate verification error on Windows | Use a trusted system certificate configuration. On systems with the required CA in the Windows trust store, run `$env:NODE_USE_SYSTEM_CA='1'` in that terminal before `npm install`; do not disable TLS verification. |
 | Authentication failure | Check username, password, permissions, percent encoding, and MongoDB `authSource` when applicable. |
 | Connection timeout or unreachable | Check database host and port, VPN, firewall, hosted-service IP allowlist, and whether the database server is running. |
